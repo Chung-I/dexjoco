@@ -87,6 +87,7 @@ training/evaluation support.
 - [Headless Rendering](#headless-rendering)
 - [License](#-license)
 - [Citation](#-citation)
+- [Appendix: Known Setup and Evaluation Problems](#appendix)
 
 ## 🚀 Installation
 
@@ -451,3 +452,80 @@ Bundled third-party components and assets retain their separate license terms:
       url={https://arxiv.org/abs/2605.16257},
 }
 ```
+
+<a id="appendix"></a>
+
+## 📎 Appendix: Known Setup and Evaluation Problems
+
+We found these problems during a clean installation and evaluation on one
+machine (Ubuntu, RTX 5090, no conda installed before). Each problem has a
+solution or a safe workaround.
+
+### A.1 EGL traceback at the end of each headless run
+
+Each headless run ends with an `EGLError` traceback from MuJoCo, for example:
+
+```text
+OpenGL.raw.EGL._errors.EGLError: <exception str() failed>
+Exception ignored in: <function GLContext.__del__ ...>
+```
+
+This traceback is not a crash. The error occurs when Python releases the
+graphics context at exit. The render output is correct. Ignore the traceback.
+To make sure that the run was good, look for the episode videos and the
+`success_rate_*.txt` file in the output directory.
+
+### A.2 Checkpoint download and directory layout
+
+The [DexJoCo-Pi05](https://huggingface.co/DexJoCo/DexJoCo-Pi05) repository uses
+the layout `pi05_dexjoco_ckpt/<task>/`. It does not use the
+`pi05_ckpts/<task>/<exp_name>/<step>` layout that the serve example in this
+README shows. Use this command to download one task checkpoint:
+
+```bash
+hf download DexJoCo/DexJoCo-Pi05 \
+  --include 'pi05_dexjoco_ckpt/<task>/*' \
+  --exclude '*/train_state/*' \
+  --local-dir ./checkpoints
+```
+
+Then point `--policy.dir` to `../checkpoints/pi05_dexjoco_ckpt/<task>`.
+
+NOTE: Each single-task folder contains a `train_state/` subfolder
+(approximately 3 GB of optimizer state). Evaluation does not use this folder.
+The `--exclude` flag above skips it.
+
+NOTE: If you give `hf download` more than one pattern after `--include`, the
+CLI reads the extra patterns as filenames and ignores `--include`. Use one
+`--include` pattern for each command.
+
+### A.3 pip "incompatible" errors from `openpi/install.bash`
+
+The last step of `openpi/install.bash` installs `openpi-client`, which pins
+`numpy 1.26.4`. The `openpi` package specifies `numpy>2`. Because of this
+conflict, pip shows errors such as:
+
+```text
+openpi 0.1.0 requires numpy>2.0.0, but you have numpy 1.26.4 which is incompatible.
+```
+
+These errors are a known result of the numpy pins. The environment is correct.
+To make sure that the environment is good, do this test:
+
+```bash
+conda run -n openpi python -c "import openpi, jax; print(jax.devices())"
+```
+
+### A.4 Multi-task evaluation flags
+
+The options table in this README only names `configs/rand_obj/` and
+`configs/rand_full/`. The repository also contains `configs/multi_task/` and
+`configs/ipad_reasoning/`. The full multi-task procedure is in
+[`dexjoco/README.md`](dexjoco/README.md). In short:
+
+1. Serve with `--policy.config=multi_task` and point `--policy.dir` to
+   `../checkpoints/pi05_dexjoco_multi_task`.
+2. Evaluate with a config from `configs/multi_task/`.
+3. For a single-arm task, add `--pad-state-dim46` to the evaluation command.
+   This flag pads the 23-dimension single-arm state to the 46-dimension
+   dual-arm layout that the multi-task model expects.
